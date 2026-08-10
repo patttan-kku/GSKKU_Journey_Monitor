@@ -1,0 +1,20 @@
+services:
+  app:
+    container_name: journey_monitor
+    image: node:20-alpine
+    working_dir: /app
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - HOST_PORT=${HOST_PORT:-3003}
+    volumes:
+      - .:/app
+      - /app/node_modules
+    ports:
+      - "${HOST_PORT:-3003}:3000"
+    command: sh -c "npm install && if [ \"$$NODE_ENV\" = \"production\" ]; then npm run build && npx tsx server.ts; else npm run dev; fi"
+    networks:
+      - dockertest_gs-network
+
+networks:
+  dockertest_gs-network:
+    external: true

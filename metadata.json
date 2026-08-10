@@ -1,0 +1,8 @@
+{
+  "name": "GS KKU Journey Monitor",
+  "description": "ระบบมอนิเตอร์สถานะการเรียนของนักศึกษาบัณฑิตวิทยาลัย มหาวิทยาลัยขอนแก่น สำหรับอาจารย์และเจ้าหน้าที่",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
