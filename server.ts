@@ -286,7 +286,7 @@ const MOCK_USERS = [
 async function startServer() {
   await connectToMongo();
   const app = express();
-  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+  const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3003;
 
   app.use(cors());
   app.use(express.json());
