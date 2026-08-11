@@ -1362,11 +1362,30 @@ function AuthCallback() {
     
     const code = searchParams.get('code');
     const token = searchParams.get('token');
+
+    // Extract path parameters from window.location.pathname as a fallback if useParams() is empty
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const cbIndex = pathParts.indexOf('callback');
+    let p1 = params.p1;
+    let p2 = params.p2;
+    let p3 = params.p3;
+    let p4 = params.p4;
+
+    if (cbIndex !== -1) {
+      if (!p1) p1 = pathParts[cbIndex + 1];
+      if (!p2) p2 = pathParts[cbIndex + 2];
+      if (!p3) p3 = pathParts[cbIndex + 3];
+      if (!p4) p4 = pathParts[cbIndex + 4];
+    }
     
     const runCallback = async () => {
       setProcessed(true);
       try {
-        const payload: any = { ...params };
+        const payload: any = {};
+        if (p1) payload.p1 = p1;
+        if (p2) payload.p2 = p2;
+        if (p3) payload.p3 = p3;
+        if (p4) payload.p4 = p4;
         if (code) payload.code = code;
         if (token) payload.token = token;
 
@@ -1382,7 +1401,7 @@ function AuthCallback() {
           const sessionData = encodeURIComponent(JSON.stringify(userData));
           window.location.href = `http://localhost:3000/?session=${sessionData}`;
         } else {
-          window.location.href = '/';
+          window.location.href = import.meta.env.BASE_URL || '/';
         }
       } catch (e: any) {
         console.error("AuthCallback Error:", e);
@@ -2228,6 +2247,15 @@ function App() {
   }, []);
   
   if (!initialized) return null;
+
+  // Intercept callback route directly to prevent blank screen if BASE_URL differs from callback URL
+  if (window.location.pathname.includes('/auth/callback')) {
+    return (
+      <BrowserRouter>
+        <AuthCallback />
+      </BrowserRouter>
+    );
+  }
 
   return (
     <BrowserRouter basename={import.meta.env.BASE_URL}>
