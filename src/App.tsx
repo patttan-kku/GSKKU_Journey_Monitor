@@ -1396,13 +1396,8 @@ function AuthCallback() {
         const userData = await handleSSOCallback(payload);
         localStorage.setItem('KKU_SSO_SESSION', JSON.stringify(userData));
         
-        // ถ้าล็อกอินบน Cloud Run/Production แต่อีเมลคือผู้พัฒนา (patttan@kku.ac.th) ให้เด้งกลับไปที่ localhost:3000 สำหรับการทดสอบเครื่องเครื่องโลคอล
-        if (userData && userData.email === 'patttan@kku.ac.th' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-          const sessionData = encodeURIComponent(JSON.stringify(userData));
-          window.location.href = `http://localhost:3000/?session=${sessionData}`;
-        } else {
-          window.location.href = import.meta.env.BASE_URL || '/';
-        }
+        // นำทางกลับไปยังหน้าหลักของระบบเมื่อยืนยันตัวตนสำเร็จ
+        window.location.href = import.meta.env.BASE_URL || '/';
       } catch (e: any) {
         console.error("AuthCallback Error:", e);
         setError(e.message || "เกิดข้อผิดพลาดในการยืนยันตัวตน");
