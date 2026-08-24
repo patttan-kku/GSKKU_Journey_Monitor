@@ -311,19 +311,18 @@ async function startServer() {
   const isProduction = appEnv === 'production' || appEnv === 'prod';
 
   // --- OAuth 2.0 / SSO Configuration ---
+  const DEV_SSO_LINK = "https://gsauth.kku.ac.th/auth/id/4/04b29480233f4def5c875875b6bdc3b1/182be0c5cdcd5072bb1864cdee4d3d6e";
+  const PROD_SSO_LINK = "https://gsauth.kku.ac.th/auth/id/4/04b29480233f4def5c875875b6bdc3b1/e369853df766fa44e1ed0ff613f563bd";
+
   const SSO_CLIENT_ID = process.env.KKU_SSO_CLIENT_ID 
-    || (isProduction ? process.env.KKU_SSO_CLIENT_ID_PROD : process.env.KKU_SSO_CLIENT_ID_DEV)
-    || process.env.KKU_SSO_CLIENT_ID_DEV
-    || '182be0c5cdcd5072bb1864cdee4d3d6e';
+    || (isProduction ? (process.env.KKU_SSO_CLIENT_ID_PROD || 'e369853df766fa44e1ed0ff613f563bd') : (process.env.KKU_SSO_CLIENT_ID_DEV || '182be0c5cdcd5072bb1864cdee4d3d6e'));
 
   const SSO_CLIENT_SECRET = process.env.KKU_SSO_CLIENT_SECRET
     || (isProduction ? process.env.KKU_SSO_CLIENT_SECRET_PROD : process.env.KKU_SSO_CLIENT_SECRET_DEV)
-    || process.env.KKU_SSO_CLIENT_SECRET_DEV
     || '';
 
   const SSO_AUTH_URL = process.env.KKU_SSO_AUTH_URL
-    || (isProduction ? process.env.KKU_SSO_AUTH_URL_PROD : process.env.KKU_SSO_AUTH_URL_DEV)
-    || 'https://gsauth.kku.ac.th/auth/id/4/04b29480233f4def5c875875b6bdc3b1/182be0c5cdcd5072bb1864cdee4d3d6e';
+    || (isProduction ? (process.env.KKU_SSO_AUTH_URL_PROD || PROD_SSO_LINK) : (process.env.KKU_SSO_AUTH_URL_DEV || DEV_SSO_LINK));
 
   const SSO_TOKEN_URL = process.env.KKU_SSO_TOKEN_URL
     || (isProduction ? process.env.KKU_SSO_TOKEN_URL_PROD : process.env.KKU_SSO_TOKEN_URL_DEV)
@@ -335,6 +334,7 @@ async function startServer() {
 
   console.log(`[CONFIG] Active APP_ENV: ${appEnv} (isProduction: ${isProduction})`);
   console.log(`[CONFIG] KKU SSO Client ID: ${SSO_CLIENT_ID ? SSO_CLIENT_ID.substring(0, 6) + '...' : 'Not set'}`);
+  console.log(`[CONFIG] KKU SSO Auth URL: ${SSO_AUTH_URL}`);
 
   // --- Life Journey API Integration ---
   const LJ_CLIENT_ID = process.env.LIFE_JOURNEY_CLIENT_ID || '6a1e2dab9eb5b9d6404d179c';
@@ -425,14 +425,22 @@ async function startServer() {
 
   // 1. Get Authorization URL
   app.get("/api/auth/url", (req, res) => {
-    // ลิงก์ตรงจาก GSAUTH ที่ IT มข. ให้มาล่าสุด
-    const GSAUTH_LINK = "https://gsauth.kku.ac.th/auth/id/4/04b29480233f4def5c875875b6bdc3b1/182be0c5cdcd5072bb1864cdee4d3d6e";
+    const origin = req.get('origin') || req.get('referer') || '';
+    const host = req.get('host') || '';
+    
+    // Tự độngตรวจว่ากำลังเรียกจาก localhost หรือเซิร์ฟเวอร์จริง
+    const isLocalhost = host.includes('localhost') || host.includes('127.0.0.1') || origin.includes('localhost');
+    
+    // ถ้าตั้งค่าผ่าน Environment ให้ใช้ตาม Env ก่อน หากไม่ตั้งให้เลือกตาม Host อัตโนมัติ
+    let targetAuthUrl = SSO_AUTH_URL;
+    if (!process.env.KKU_SSO_AUTH_URL) {
+      targetAuthUrl = isLocalhost ? DEV_SSO_LINK : PROD_SSO_LINK;
+    }
 
-    console.log("SERVER: Auth URL Request from:", req.get('origin') || 'no-origin');
-    console.log("SERVER: APP_URL is:", process.env.APP_URL || 'not-set');
-    console.log("SERVER: Target SSO URL:", GSAUTH_LINK);
+    console.log("SERVER: Auth URL Request from Host:", host, "Origin:", origin);
+    console.log("SERVER: Selected SSO URL:", targetAuthUrl);
 
-    return res.json({ url: GSAUTH_LINK });
+    return res.json({ url: targetAuthUrl, isProduction: !isLocalhost });
   });
 
   // --- API Routes ---
@@ -443,10 +451,11 @@ async function startServer() {
 
     // p4 คือค่าอีเมลที่เข้ารหัสมา
     const encryptedEmail = p4 || req.body.token;
-    const systemId = "182be0c5cdcd5072bb1864cdee4d3d6e"; // จากรูปของคุณ
+    // ใช้ Client ID / System ID ตาม Environment หรือดึงจาก p1/p2 ถ้ามี
+    const systemId = SSO_CLIENT_ID || (isProduction ? "e369853df766fa44e1ed0ff613f563bd" : "182be0c5cdcd5072bb1864cdee4d3d6e");
 
     console.log("SERVER: --- STARTING MULTI-STAGE AUTH FLOW ---");
-    console.log("SERVER: Params Received:", { p1, p2, p3, p4 });
+    console.log("SERVER: Params Received:", { p1, p2, p3, p4, usingSystemId: systemId });
 
     try {
       if (!encryptedEmail) {
