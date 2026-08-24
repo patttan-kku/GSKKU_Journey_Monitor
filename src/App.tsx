@@ -1497,11 +1497,17 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
       else if (s.plan.includes('ก 1')) typeVal = 'ก 1';
       else if (s.plan.includes('2')) typeVal = '2';
       
+      // Mock student statuses distribution for testing: 10: ปกติ, 11: รักษาสภาพ, 12: ลาพัก, 16: รอตีพิมพ์
+      const mockStatusId = (i % 8 === 2) ? '11' : (i % 8 === 4) ? '12' : (i % 8 === 6) ? '16' : '10';
+      const mockStatusName = mockStatusId === '11' ? 'รักษาสภาพนักศึกษา' : mockStatusId === '12' ? 'ลาพักการเรียน' : mockStatusId === '16' ? 'รอตีพิมพ์' : 'ปกติ';
+
       return {
         ...s,
         level: levelVal,
         plan: planVal,
         type: typeVal,
+        studentStatusId: mockStatusId,
+        studentStatusName: mockStatusName,
       };
     });
   }, []);
@@ -1835,8 +1841,8 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
               monthsOfStudy: s.months || s.monthsOfStudy || 0,
               gpa: s.gpa !== undefined ? s.gpa : (p.gpa !== undefined ? p.gpa : 0),
               enrollments: s.enrollments || p.enrollments || s.courses || [],
-              studentStatusId: String(p.studentStatus?.id || s.studentStatus?.id || ''),
-              studentStatusName: p.studentStatus?.nameTH || s.studentStatus?.nameTH || p.studentStatusName || s.studentStatusName || '',
+              studentStatusId: String(p.studentStatus?.id || s.studentStatus?.id || s.studentStatusId || ''),
+              studentStatusName: p.studentStatus?.name || p.studentStatus?.nameTH || s.studentStatus?.name || s.studentStatus?.nameTH || p.studentStatusName || s.studentStatusName || '',
               milestoneStats: {
                 total: MILESTONES.length,
                 completed: mappedMilestones.filter(m => m.status === 'done').length
@@ -1947,7 +1953,7 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
     }
 
     return students;
-  }, [dashboardType, user, allStudents, mappedMockStudents, selectedLevel, selectedCurriculum, selectedPlan, selectedType, selectedSystem, activeAdvisor, searchTerm, isMockUser]);
+  }, [dashboardType, user, allStudents, mappedMockStudents, selectedLevel, selectedCurriculum, selectedPlan, selectedType, selectedSystem, selectedStatus, activeAdvisor, searchTerm, isMockUser]);
 
   if (view === 'LOGIN') return <LoginView onLogin={handleLogin} />;
   
