@@ -565,14 +565,14 @@ const StudentStatusBadge = ({ statusId, statusName }: { statusId?: string; statu
   const sid = String(statusId || '').trim();
   let name = statusName || '';
   
-  if (!name || name === 'ปกติ') {
+  if (!name || name === 'ปกติ' || name === 'นักศึกษาปัจจุบัน สถานะปกติ') {
     if (sid === '11') name = 'รักษาสภาพ';
     else if (sid === '12') name = 'ลาพักการเรียน';
     else if (sid === '16') name = 'รอตีพิมพ์';
-    else name = 'ปกติ';
+    else name = 'นักศึกษาปัจจุบัน สถานะปกติ';
   }
 
-  // 10: ปกติ (เขียว)
+  // 10: นักศึกษาปัจจุบัน สถานะปกติ (เขียว)
   // 11: รักษาสภาพ (ฟ้า)
   // 12: ลาพักการเรียน (ส้ม/เหลือง)
   // 16: รอตีพิมพ์ (ม่วง)
@@ -606,7 +606,7 @@ const StudentStatusBadge = ({ statusId, statusName }: { statusId?: string; statu
   return (
     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-sm whitespace-nowrap">
       <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-      {name || 'ปกติ'}
+      นักศึกษาปัจจุบัน สถานะปกติ
     </span>
   );
 };
@@ -817,11 +817,11 @@ const exportStudentsToCSV = (students: any[], exportTitle: string = 'ราย�
     
     const sid = String(s.studentStatusId || '').trim();
     let sName = s.studentStatusName || '';
-    if (!sName || sName === 'ปกติ') {
+    if (!sName || sName === 'ปกติ' || sName === 'นักศึกษาปัจจุบัน สถานะปกติ') {
       if (sid === '11') sName = 'รักษาสภาพนักศึกษา';
       else if (sid === '12') sName = 'ลาพักการเรียน';
       else if (sid === '16') sName = 'รอตีพิมพ์';
-      else sName = 'ปกติ';
+      else sName = 'นักศึกษาปัจจุบัน สถานะปกติ';
     }
 
     const completedCount = s.milestoneStats?.completed !== undefined
@@ -1630,9 +1630,9 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
       else if (s.plan.includes('ก 1')) typeVal = 'ก 1';
       else if (s.plan.includes('2')) typeVal = '2';
       
-      // Mock student statuses distribution for testing: 10: ปกติ, 11: รักษาสภาพ, 12: ลาพัก, 16: รอตีพิมพ์
+      // Mock student statuses distribution for testing: 10: นักศึกษาปัจจุบัน สถานะปกติ, 11: รักษาสภาพ, 12: ลาพัก, 16: รอตีพิมพ์
       const mockStatusId = (i % 8 === 2) ? '11' : (i % 8 === 4) ? '12' : (i % 8 === 6) ? '16' : '10';
-      const mockStatusName = mockStatusId === '11' ? 'รักษาสภาพนักศึกษา' : mockStatusId === '12' ? 'ลาพักการเรียน' : mockStatusId === '16' ? 'รอตีพิมพ์' : 'ปกติ';
+      const mockStatusName = mockStatusId === '11' ? 'รักษาสภาพนักศึกษา' : mockStatusId === '12' ? 'ลาพักการเรียน' : mockStatusId === '16' ? 'รอตีพิมพ์' : 'นักศึกษาปัจจุบัน สถานะปกติ';
 
       return {
         ...s,
@@ -1722,7 +1722,7 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
   }, [allStudents, mappedMockStudents, selectedLevel, selectedCurriculum, selectedPlan, selectedType, isMockUser]);
 
   const availableStatuses = useMemo(() => {
-    return ['ทั้งหมด', 'ปกติ', 'รักษาสภาพนักศึกษา', 'ลาพักการเรียน', 'รอตีพิมพ์'];
+    return ['ทั้งหมด', 'นักศึกษาปัจจุบัน สถานะปกติ', 'รักษาสภาพนักศึกษา', 'ลาพักการเรียน', 'รอตีพิมพ์'];
   }, []);
 
   // Sync selections cascadingly if options change
@@ -2060,8 +2060,8 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
       students = students.filter(s => {
         const sid = String(s.studentStatusId || '').trim();
         const sname = (s.studentStatusName || '').trim();
-        if (selectedStatus === 'ปกติ') {
-          return sid === '10' || (!sid && !sname) || sname === 'ปกติ';
+        if (selectedStatus === 'นักศึกษาปัจจุบัน สถานะปกติ' || selectedStatus === 'ปกติ') {
+          return sid === '10' || (!sid && !sname) || sname === 'ปกติ' || sname.includes('ปกติ') || sname.includes('นักศึกษาปัจจุบัน');
         }
         if (selectedStatus === 'รักษาสภาพนักศึกษา' || selectedStatus === 'รักษาสภาพ') {
           return sid === '11' || sname.includes('รักษาสภาพ');
