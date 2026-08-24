@@ -27,7 +27,9 @@ import {
   Clock,
   Copy,
   AlertTriangle,
-  AlertCircle
+  AlertCircle,
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 import { BrowserRouter, Routes, Route, useSearchParams, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
@@ -770,6 +772,124 @@ const checkProposalEnrollmentWarning = (student: any): ProposalEnrollmentWarning
   }
 };
 
+const exportStudentsToCSV = (students: any[], exportTitle: string = 'รายงานข้อมูลนักศึกษา') => {
+  if (!students || students.length === 0) {
+    alert('ไม่มีข้อมูลนักศึกษาสำหรับส่งออกรายงาน');
+    return;
+  }
+
+  const milestoneHeaders = MILESTONES.map(m => `ขั้นตอน: ${m.name}`);
+
+  const headers = [
+    'ลำดับ',
+    'รหัสนักศึกษา',
+    'ชื่อ-นามสกุล',
+    'ระดับการศึกษา',
+    'หลักสูตร',
+    'แผนการศึกษา',
+    'แบบ',
+    'ระบบการศึกษา',
+    'สถานะนักศึกษา',
+    'รหัสสถานะ',
+    'ชั้นปี (ปีการศึกษา)',
+    'ภาคการศึกษา',
+    'จำนวนเดือนที่ศึกษา',
+    'เกรดเฉลี่ยสะสม (GPA)',
+    'ผลงานตีพิมพ์ (เรื่อง)',
+    'อาจารย์ที่ปรึกษา',
+    'ทุนการศึกษา',
+    'ความก้าวหน้ารวม (ขั้นตอนที่ผ่าน)',
+    'ร้อยละความก้าวหน้า (%)',
+    'สถานะการแจ้งเตือนระยะเวลาศึกษา',
+    'สถานะการแจ้งเตือนเค้าโครงวิทยานิพนธ์',
+    ...milestoneHeaders,
+  ];
+
+  const escapeCSV = (val: any) => {
+    if (val === null || val === undefined) return '""';
+    const str = String(val).replace(/"/g, '""');
+    return `"${str}"`;
+  };
+
+  const rows = students.map((s, idx) => {
+    const dInfo = calculateStudyDurationInfo(s);
+    const pWarning = checkProposalEnrollmentWarning(s);
+    
+    const sid = String(s.studentStatusId || '').trim();
+    let sName = s.studentStatusName || '';
+    if (!sName || sName === 'ปกติ') {
+      if (sid === '11') sName = 'รักษาสภาพนักศึกษา';
+      else if (sid === '12') sName = 'ลาพักการเรียน';
+      else if (sid === '16') sName = 'รอตีพิมพ์';
+      else sName = 'ปกติ';
+    }
+
+    const completedCount = s.milestoneStats?.completed !== undefined
+      ? s.milestoneStats.completed
+      : (s.milestones?.filter((m: any) => m.status === 'done').length || 0);
+    const totalCount = s.milestoneStats?.total !== undefined
+      ? s.milestoneStats.total
+      : MILESTONES.length;
+    const progressPercent = totalCount > 0 ? ((completedCount / totalCount) * 100).toFixed(1) : '0.0';
+    const gpaFormatted = s.gpa !== undefined && s.gpa !== null ? Number(s.gpa).toFixed(2) : '-';
+    const papersCount = s.allPublication !== undefined ? s.allPublication : (s.papers || 0);
+
+    const durationAlertText = dInfo.alertMessage || 'ปกติ';
+    const proposalAlertText = pWarning.hasWarning ? pWarning.message : 'ปกติ';
+
+    const milestoneValues = MILESTONES.map(m => {
+      const found = s.milestones?.find((item: any) => item.milestoneId === m.id);
+      if (found?.status === 'done') {
+        return found.date ? `ผ่าน (${found.date})` : 'ผ่าน';
+      }
+      return 'รอดำเนินการ';
+    });
+
+    return [
+      idx + 1,
+      s.studentCode || '',
+      s.name || '',
+      s.level || dInfo.levelName || '',
+      s.curriculum || '',
+      s.plan || '',
+      s.type || '',
+      s.system || '',
+      sName,
+      sid || '10',
+      dInfo.studentYear || 1,
+      dInfo.currentSemester || 1,
+      s.monthsOfStudy || s.months || 0,
+      gpaFormatted,
+      papersCount,
+      s.advisor || '',
+      s.scholarship || '-',
+      `${completedCount}/${totalCount}`,
+      `${progressPercent}%`,
+      durationAlertText,
+      proposalAlertText,
+      ...milestoneValues,
+    ].map(escapeCSV).join(',');
+  });
+
+  // UTF-8 BOM for Microsoft Excel Thai language compatibility
+  const csvContent = '\uFEFF' + [headers.map(escapeCSV).join(','), ...rows].join('\r\n');
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  
+  const now = new Date();
+  const dateStr = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}_${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+  const cleanTitle = exportTitle.replace(/[^a-zA-Z0-9_\u0E00-\u0E7F]/g, '_');
+  const fileName = `GS_KKU_Report_${cleanTitle}_${dateStr}.csv`;
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.setAttribute('download', fileName);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const StudentStatusMatrix = ({ students, title }: { students: typeof MOCK_STUDENTS, title?: string }) => {
   const [loadingStudentCode, setLoadingStudentCode] = useState<string | null>(null);
   const [modalInfo, setModalInfo] = useState<{ url: string; name: string; studentCode: string } | null>(null);
@@ -814,14 +934,27 @@ const StudentStatusMatrix = ({ students, title }: { students: typeof MOCK_STUDEN
   return (
     <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-200 overflow-hidden flex flex-col relative">
       {title && (
-        <div className="px-8 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+        <div className="px-6 sm:px-8 py-5 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between gap-4 flex-wrap">
           <h3 className="font-black text-slate-800 tracking-tight flex items-center gap-2">
             <Users size={18} className="text-kku-green" />
             {title}
           </h3>
-          <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-            {students.length} รายการ
-          </span>
+          <div className="flex items-center gap-3">
+            {students.length > 0 && (
+              <button
+                type="button"
+                onClick={() => exportStudentsToCSV(students, title)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-white hover:bg-emerald-50 text-slate-600 hover:text-emerald-700 border border-slate-200 hover:border-emerald-200 rounded-xl text-[11px] font-black transition-all shadow-sm cursor-pointer"
+                title={`ส่งออกรายงานของ ${title} เป็นไฟล์ .CSV`}
+              >
+                <Download size={13} className="text-emerald-600" />
+                <span>Export กลุ่มนี้ (.CSV)</span>
+              </button>
+            )}
+            <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              {students.length} รายการ
+            </span>
+          </div>
         </div>
       )}
       <div className="overflow-auto max-h-[700px] relative scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
@@ -2101,11 +2234,23 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
                         />
                       </div>
                     </div>
-                    <div className="text-center md:text-right w-full md:w-auto">
-                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">แสดงผล</p>
-                      <p className="text-xl sm:text-2xl font-black text-slate-800 tabular-nums">
-                        {filteredStudents.length} <span className="text-sm font-bold text-slate-300">คน</span>
-                      </p>
+                    <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end flex-wrap sm:flex-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => exportStudentsToCSV(filteredStudents, 'Advisor_Students')}
+                        disabled={filteredStudents.length === 0}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-black rounded-2xl shadow-md shadow-emerald-700/20 transition-all cursor-pointer whitespace-nowrap"
+                        title="ส่งออกรายงานนักศึกษาที่กรองไว้เป็นไฟล์ .CSV (เปิดใน Excel ได้สมบูรณ์)"
+                      >
+                        <Download size={15} />
+                        <span>Export Report (.CSV)</span>
+                      </button>
+                      <div className="text-center md:text-right">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">แสดงผล</p>
+                        <p className="text-xl sm:text-2xl font-black text-slate-800 tabular-nums">
+                          {filteredStudents.length} <span className="text-sm font-bold text-slate-300">คน</span>
+                        </p>
+                      </div>
                     </div>
                   </div>
 
@@ -2218,20 +2363,43 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
                           </button>
                         )}
                       </div>
-                      <div className="text-right">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">ผลการค้นหา</p>
-                        <p className="text-2xl font-black text-slate-800 tabular-nums">
-                          {filteredStudents.length} <span className="text-sm font-bold text-slate-300">คน</span>
-                        </p>
+                      <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-end flex-wrap sm:flex-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => exportStudentsToCSV(filteredStudents, dashboardType === 'STAFF' ? 'Staff_Monitoring' : 'Program_Statistics')}
+                          disabled={filteredStudents.length === 0}
+                          className="inline-flex items-center gap-2 px-4 py-2.5 bg-gradient-to-r from-emerald-600 to-teal-700 hover:from-emerald-700 hover:to-teal-800 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-black rounded-2xl shadow-md shadow-emerald-700/20 transition-all cursor-pointer whitespace-nowrap"
+                          title="ส่งออกรายงานนักศึกษาตามตัวกรองปัจจุบันเป็นไฟล์ .CSV (เปิดใน Excel ได้สมบูรณ์)"
+                        >
+                          <Download size={15} />
+                          <span>Export Report (.CSV)</span>
+                        </button>
+                        <div className="text-right">
+                          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">ผลการค้นหา</p>
+                          <p className="text-2xl font-black text-slate-800 tabular-nums">
+                            {filteredStudents.length} <span className="text-sm font-bold text-slate-300">คน</span>
+                          </p>
+                        </div>
                       </div>
                     </div>
 
                     <div className="space-y-6">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <h4 className="font-black text-slate-800 flex items-center gap-3 text-xl sm:text-2xl tracking-tight">
                           <div className="w-1.5 h-6 sm:h-8 bg-kku-green rounded-full" />
                           รายการความก้าวหน้า {selectedPlan !== 'ทั้งหมด' ? `(${selectedPlan})` : ''}
                         </h4>
+                        {filteredStudents.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => exportStudentsToCSV(filteredStudents, dashboardType === 'STAFF' ? 'Staff_Progress_List' : 'Program_Progress_List')}
+                            className="inline-flex items-center gap-2 px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-200 hover:border-slate-300 active:scale-95 text-slate-700 hover:text-emerald-700 text-xs font-black rounded-xl shadow-sm transition-all cursor-pointer whitespace-nowrap w-fit"
+                            title="ส่งออกรายงานตารางความก้าวหน้าเป็นไฟล์ .CSV"
+                          >
+                            <FileSpreadsheet size={15} className="text-emerald-600" />
+                            <span>Export CSV ({filteredStudents.length})</span>
+                          </button>
+                        )}
                       </div>
                       <StudentStatusMatrix students={filteredStudents} />
                       
