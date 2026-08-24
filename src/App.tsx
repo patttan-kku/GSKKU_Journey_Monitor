@@ -96,31 +96,6 @@ const LoginView = ({ onLogin, isLoading: externalLoading }: { onLogin: (u: User)
       .catch(err => console.error("Failed to load auth URL", err));
   }, []);
 
-  const handleMockLogin = (type: 'STAFF' | 'PROFESSOR') => {
-    setInternalLoading(true);
-    setTimeout(() => {
-      if (type === 'STAFF') {
-        onLogin({ 
-          name: 'คุณสมศรี เจ้าหน้าที่คณะ', 
-          email: 'staff@kku.ac.th', 
-          role: 'STAFF',
-          faculty: 'วิศวกรรมศาสตร์',
-          department: 'สำนักงานคณบดี'
-        });
-      } else {
-        onLogin({ 
-          name: 'ผศ.ดร.นนทวัฒน์ สมพงษ์', 
-          email: 'professor@kku.ac.th', 
-          role: 'ADVISOR',
-          secondaryRoles: ['PROGRAM_CHAIR'],
-          faculty: 'วิศวกรรมศาสตร์',
-          department: 'คอมพิวเตอร์'
-        });
-      }
-      setInternalLoading(false);
-    }, 600);
-  };
-
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-6">
       <motion.div 
@@ -144,28 +119,6 @@ const LoginView = ({ onLogin, isLoading: externalLoading }: { onLogin: (u: User)
             <ShieldCheck size={24} />
             <span className="text-lg">เข้าสู่ระบบด้วย KKU SSO</span>
           </a>
-          <div className="py-6 flex items-center gap-4">
-            <div className="h-px flex-1 bg-slate-100"></div>
-            <span className="text-[10px] font-black text-slate-300 uppercase tracking-[0.3em]">Quick Access for Dev</span>
-            <div className="h-px flex-1 bg-slate-100"></div>
-          </div>
-
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { id: 'ADVISOR', label: 'ที่ปรึกษา', icon: <Users size={16} /> },
-              { id: 'STAFF', label: 'เจ้าหน้าที่', icon: <Activity size={16} /> },
-              { id: 'PROGRAM', label: 'ประธานฯ', icon: <ShieldCheck size={16} /> }
-            ].map(role => (
-              <button 
-                key={role.id}
-                onClick={() => handleMockLogin(role.id as any)}
-                className="flex flex-col items-center gap-2 p-3 rounded-2xl bg-slate-50 border border-slate-100 hover:bg-kku-gold/5 hover:border-kku-gold/30 hover:text-kku-gold-darker transition-all group"
-              >
-                <div className="text-slate-400 group-hover:text-kku-gold transition-colors">{role.icon}</div>
-                <span className="text-[10px] font-black uppercase tracking-tighter">{role.label}</span>
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="mt-12 pt-8 border-t border-slate-100 text-center">
@@ -606,6 +559,56 @@ const DashboardStats = ({ students }: { students: typeof MOCK_STUDENTS }) => {
   );
 };
 
+const StudentStatusBadge = ({ statusId, statusName }: { statusId?: string; statusName?: string }) => {
+  const sid = String(statusId || '').trim();
+  let name = statusName || '';
+  
+  if (!name || name === 'ปกติ') {
+    if (sid === '11') name = 'รักษาสภาพ';
+    else if (sid === '12') name = 'ลาพักการเรียน';
+    else if (sid === '16') name = 'รอตีพิมพ์';
+    else name = 'ปกติ';
+  }
+
+  // 10: ปกติ (เขียว)
+  // 11: รักษาสภาพ (ฟ้า)
+  // 12: ลาพักการเรียน (ส้ม/เหลือง)
+  // 16: รอตีพิมพ์ (ม่วง)
+  if (sid === '11' || name.includes('รักษาสภาพ')) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-sky-50 text-sky-700 border border-sky-200 shadow-sm whitespace-nowrap">
+        <span className="w-1.5 h-1.5 rounded-full bg-sky-500 animate-pulse" />
+        {name.length > 15 ? 'รักษาสภาพ' : name}
+      </span>
+    );
+  }
+
+  if (sid === '12' || name.includes('ลาพัก')) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-amber-50 text-amber-700 border border-amber-200 shadow-sm whitespace-nowrap">
+        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+        {name.length > 15 ? 'ลาพักการเรียน' : name}
+      </span>
+    );
+  }
+
+  if (sid === '16' || name.includes('ตีพิมพ์') || name.includes('รอตีพิมพ์')) {
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black bg-purple-50 text-purple-700 border border-purple-200 shadow-sm whitespace-nowrap">
+        <span className="w-1.5 h-1.5 rounded-full bg-purple-500" />
+        {name.length > 15 ? 'รอตีพิมพ์' : name}
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/80 shadow-sm whitespace-nowrap">
+      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+      {name || 'ปกติ'}
+    </span>
+  );
+};
+
 const MilestoneDot = ({ status }: { status: MilestoneStatus }) => {
   switch (status) {
     case 'done':
@@ -868,15 +871,21 @@ const StudentStatusMatrix = ({ students, title }: { students: typeof MOCK_STUDEN
                           )}
                         </button>
 
-                        {/* Interactive Clickable Student Code */}
-                        <button
-                          onClick={() => handleAccess(student.studentCode, student.name)}
-                          disabled={loadingStudentCode !== null}
-                          className="text-[10px] bg-slate-100 hover:bg-slate-200 hover:text-kku-gold text-slate-500 px-2 py-0.5 rounded font-mono font-bold shadow-sm w-fit whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50 flex items-center gap-1"
-                          title="คลิกเพื่อขอรหัสเข้าชม Life Journey"
-                        >
-                          {student.studentCode}
-                        </button>
+                        {/* Interactive Clickable Student Code & Status Badge */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <button
+                            onClick={() => handleAccess(student.studentCode, student.name)}
+                            disabled={loadingStudentCode !== null}
+                            className="text-[10px] bg-slate-100 hover:bg-slate-200 hover:text-kku-gold text-slate-500 px-2 py-0.5 rounded font-mono font-bold shadow-sm w-fit whitespace-nowrap cursor-pointer transition-colors disabled:opacity-50 flex items-center gap-1"
+                            title="คลิกเพื่อขอรหัสเข้าชม Life Journey"
+                          >
+                            {student.studentCode}
+                          </button>
+                          <StudentStatusBadge 
+                            statusId={student.studentStatusId} 
+                            statusName={student.studentStatusName} 
+                          />
+                        </div>
 
                         <div className="flex flex-col gap-1.5 whitespace-nowrap mt-1.5">
                           <div className="flex flex-col gap-1">
@@ -1502,6 +1511,7 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
   const [selectedPlan, setSelectedPlan] = useState<string>('ทั้งหมด');
   const [selectedType, setSelectedType] = useState<string>('ทั้งหมด');
   const [selectedSystem, setSelectedSystem] = useState<string>('ทั้งหมด');
+  const [selectedStatus, setSelectedStatus] = useState<string>('ทั้งหมด');
   const [searchTerm, setSearchTerm] = useState('');
   const [allStudents, setAllStudents] = useState<any[]>([]);
   const [isDataLoading, setIsDataLoading] = useState(false);
@@ -1571,6 +1581,10 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
     const unique = Array.from(new Set(filtered.map(s => s.system || 'ไม่ระบุระบบ').filter(Boolean)));
     return ['ทั้งหมด', ...unique.sort()];
   }, [allStudents, mappedMockStudents, selectedLevel, selectedCurriculum, selectedPlan, selectedType, isMockUser]);
+
+  const availableStatuses = useMemo(() => {
+    return ['ทั้งหมด', 'ปกติ', 'รักษาสภาพนักศึกษา', 'ลาพักการเรียน', 'รอตีพิมพ์'];
+  }, []);
 
   // Sync selections cascadingly if options change
   React.useEffect(() => {
@@ -1902,6 +1916,27 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
       }
     }
 
+    // กรองตามสถานะนักศึกษา (ใช้ได้ทั้ง Advisor และ Staff/Program Chair)
+    if (selectedStatus && selectedStatus !== 'ทั้งหมด') {
+      students = students.filter(s => {
+        const sid = String(s.studentStatusId || '').trim();
+        const sname = (s.studentStatusName || '').trim();
+        if (selectedStatus === 'ปกติ') {
+          return sid === '10' || (!sid && !sname) || sname === 'ปกติ';
+        }
+        if (selectedStatus === 'รักษาสภาพนักศึกษา' || selectedStatus === 'รักษาสภาพ') {
+          return sid === '11' || sname.includes('รักษาสภาพ');
+        }
+        if (selectedStatus === 'ลาพักการเรียน' || selectedStatus === 'ลาพัก') {
+          return sid === '12' || sname.includes('ลาพัก');
+        }
+        if (selectedStatus === 'รอตีพิมพ์') {
+          return sid === '16' || sname.includes('ตีพิมพ์');
+        }
+        return true;
+      });
+    }
+
     // 2. ค้นหาแบบ Real-time (ชื่อ หรือ รหัส)
     if (searchTerm) {
       const lower = searchTerm.toLowerCase();
@@ -2032,23 +2067,33 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
                   </div>
 
                   <div className="bg-white p-4 sm:p-6 rounded-3xl border border-slate-100 shadow-lg shadow-slate-200/20 flex flex-col md:flex-row items-center justify-between gap-4 sm:gap-6">
-                    <div className="flex items-center gap-3 bg-slate-50 px-4 sm:px-6 py-3 rounded-2xl border border-slate-100 w-full max-w-xl shadow-inner transition-all focus-within:bg-white focus-within:border-kku-green focus-within:ring-4 focus-within:ring-kku-green/5">
-                      <Search size={18} className="text-slate-400 flex-shrink-0" />
-                      <input 
-                        type="text" 
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        placeholder="สืบค้น ชื่อ หรือ รหัส..." 
-                        className="w-full bg-transparent border-none py-1 text-sm font-bold text-slate-700 placeholder:text-slate-300 focus:ring-0"
-                      />
-                      {searchTerm && (
-                        <button 
-                          onClick={() => setSearchTerm('')}
-                          className="p-1 hover:bg-slate-200 rounded-full text-slate-400"
-                        >
-                          <X size={14} />
-                        </button>
-                      )}
+                    <div className="flex flex-col sm:flex-row items-center gap-3 w-full max-w-2xl">
+                      <div className="flex items-center gap-3 bg-slate-50 px-4 sm:px-6 py-3 rounded-2xl border border-slate-100 w-full shadow-inner transition-all focus-within:bg-white focus-within:border-kku-green focus-within:ring-4 focus-within:ring-kku-green/5">
+                        <Search size={18} className="text-slate-400 flex-shrink-0" />
+                        <input 
+                          type="text" 
+                          value={searchTerm}
+                          onChange={(e) => setSearchTerm(e.target.value)}
+                          placeholder="สืบค้น ชื่อ หรือ รหัส..." 
+                          className="w-full bg-transparent border-none py-1 text-sm font-bold text-slate-700 placeholder:text-slate-300 focus:ring-0"
+                        />
+                        {searchTerm && (
+                          <button 
+                            onClick={() => setSearchTerm('')}
+                            className="p-1 hover:bg-slate-200 rounded-full text-slate-400"
+                          >
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <div className="w-full sm:w-auto flex-shrink-0">
+                        <FilterDropdown 
+                          label="สถานะนักศึกษา" 
+                          value={selectedStatus} 
+                          options={availableStatuses} 
+                          onChange={setSelectedStatus} 
+                        />
+                      </div>
                     </div>
                     <div className="text-center md:text-right w-full md:w-auto">
                       <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">แสดงผล</p>
@@ -2125,6 +2170,12 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
                           value={selectedSystem} 
                           options={availableSystems} 
                           onChange={setSelectedSystem} 
+                        />
+                        <FilterDropdown 
+                          label="สถานะนักศึกษา" 
+                          value={selectedStatus} 
+                          options={availableStatuses} 
+                          onChange={setSelectedStatus} 
                         />
                       </div>
                     </div>

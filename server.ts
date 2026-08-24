@@ -1064,7 +1064,7 @@ async function startServer() {
       const durationMs = Date.now() - startTime;
       console.log(`LJ: [FAST FETCH COMPLETE] Total collected: ${allStudents.length} items across ${totalPages} pages in ${durationMs}ms`);
 
-      // --- FILTER STUDENTS BY STATUS ID (10: นักศึกษาปัจจุบัน สถานะปกติ, 11: รักษาสภาพนักศึกษา) ---
+      // --- FILTER STUDENTS BY STATUS ID (10: ปกติ, 11: รักษาสภาพ, 12: ลาพักการเรียน, 16: รอตีพิมพ์) สำหรับทุกสิทธิ์ ---
       const totalCollected = allStudents.length;
 
       // DEBUG: Log status distribution
@@ -1075,13 +1075,27 @@ async function startServer() {
       });
       console.log("LJ: [DEBUG] Status distribution across all pages:", statusCounts);
 
-      // เฉพาะสิทธิ์อาจารย์ที่ปรึกษา (ADVISOR): ดึงสถานะ 10 (ปกติ) และ 11 (รักษาสภาพ)
-      // สิทธิ์อื่นๆ: ดึงเฉพาะสถานะ 10
-      const allowedStatusIds = userRole === 'ADVISOR' ? ['10', '11'] : ['10'];
+      // ดึงสถานะ: 10 (ปกติ), 11 (รักษาสภาพ), 12 (ลาพักการเรียน), 16 (รอตีพิมพ์) สำหรับทุกสิทธิ์
+      const allowedStatusIds = ['10', '11', '12', '16'];
 
       const filteredList = allStudents.filter(s => {
         const sid = String(s.profile?.studentStatus?.id || s.studentStatus?.id || '');
         return allowedStatusIds.includes(sid);
+      }).map(s => {
+        // เสริมความสมบูรณ์ของชื่อสถานะภาษาไทยให้ชัดเจน
+        const sid = String(s.profile?.studentStatus?.id || s.studentStatus?.id || '');
+        let sName = s.profile?.studentStatus?.name || s.studentStatus?.name || '';
+        if (sid === '10' && (!sName || sName === 'ปกติ')) sName = 'ปกติ';
+        else if (sid === '11') sName = sName || 'รักษาสภาพนักศึกษา';
+        else if (sid === '12') sName = sName || 'ลาพักการเรียน';
+        else if (sid === '16') sName = sName || 'รอตีพิมพ์';
+        
+        if (s.profile?.studentStatus) {
+          s.profile.studentStatus.name = sName;
+        } else if (s.studentStatus) {
+          s.studentStatus.name = sName;
+        }
+        return s;
       });
       console.log(`LJ: [FILTERED BY STATUS ${allowedStatusIds.join(',')}] Role: ${userRole}, Found ${filteredList.length} students (filtered out ${totalCollected - filteredList.length} students)`);
 
