@@ -196,7 +196,7 @@ const getUserDisplayName = (user: User | null): string => {
   return resolvedPrefix ? `${resolvedPrefix}${user.name}` : user.name;
 };
 
-const RoleSelectionView = ({ user, onSelect }: { user: User, onSelect: (type: DashboardType) => void }) => {
+const RoleSelectionView = ({ user, onSelect, onLogout }: { user: User, onSelect: (type: DashboardType) => void, onLogout?: () => void }) => {
   const [isChairAssigned, setIsChairAssigned] = useState<boolean>(
     user.role === 'PROGRAM_CHAIR' || !!user.secondaryRoles?.includes('PROGRAM_CHAIR')
   );
@@ -312,6 +312,19 @@ const RoleSelectionView = ({ user, onSelect }: { user: User, onSelect: (type: Da
             </motion.button>
           )}
         </div>
+
+        {onLogout && (
+          <div className="text-center mt-10">
+            <button
+              id="role-selection-logout-btn"
+              onClick={onLogout}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-2xl text-xs font-bold text-slate-400 hover:text-red-600 hover:bg-red-50 transition-all cursor-pointer border border-transparent hover:border-red-100"
+            >
+              <LogOut size={16} />
+              <span>ออกจากระบบ (Sign Out)</span>
+            </button>
+          </div>
+        )}
       </motion.div>
     </div>
   );
@@ -412,26 +425,25 @@ const Sidebar = ({
           )}
         </div>
 
-        <div className="px-6 py-4">
-          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">My Faculty</div>
-          <p className="text-xs font-bold text-slate-700 truncate">
+        <div className="px-4 py-3">
+          <div className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">MY FACULTY</div>
+          <p className="text-xs font-bold text-slate-700 truncate mb-4">
             {(() => {
               const raw = user?.facultyname || user?.sso_data?.facultyname || user?.sso_data?.faculty_name || user?.faculty || '';
               return raw ? (raw.startsWith('คณะ') ? raw : `คณะ${raw}`) : 'ไม่ระบุคณะ';
             })()}
           </p>
+
+          <button 
+            id="sidebar-logout-btn"
+            onClick={onLogout}
+            className="flex items-center justify-center gap-2 w-full px-3.5 py-2.5 rounded-xl text-xs font-bold text-red-600 hover:text-white bg-red-50 hover:bg-red-600 transition-all duration-200 border border-red-100 shadow-sm cursor-pointer"
+          >
+            <LogOut size={16} />
+            <span>ออกจากระบบ</span>
+          </button>
         </div>
       </nav>
-
-      <div className="p-4 border-t border-slate-100">
-        <button 
-          onClick={onLogout}
-          className="flex items-center gap-3 w-full px-3 py-2 text-slate-600 hover:text-kku-red transition-colors text-sm font-medium"
-        >
-          <LogOut size={20} />
-          ออกจากระบบ
-        </button>
-      </div>
     </div>
     </>
   );
@@ -2097,7 +2109,13 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
         onSelect={(type) => {
           setDashboardType(type);
           setView('DASHBOARD');
-        }} 
+        }}
+        onLogout={() => {
+          localStorage.removeItem('KKU_SSO_SESSION');
+          setView('LOGIN');
+          setUser(null);
+          setDashboardType(null);
+        }}
       />
     );
   }
