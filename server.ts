@@ -78,6 +78,86 @@ async function checkIfProgramChair(email: string): Promise<boolean> {
   return mockProgramChairs.some(c => c.program_chair_email.toLowerCase() === email.trim().toLowerCase());
 }
 
+// In-memory cache for faculty names from gs_faculties
+const facultyNameCache = new Map<string, string>();
+
+async function getFacultyNameById(facId: string | number): Promise<string | null> {
+  if (!process.env.PG_HOST || !facId) return null;
+  const cleanId = String(facId).trim();
+  const numericId = parseInt(cleanId, 10);
+  const normalizedId = isNaN(numericId) ? cleanId : String(numericId);
+
+  if (facultyNameCache.has(normalizedId)) {
+    return facultyNameCache.get(normalizedId) || null;
+  }
+
+  try {
+    const query = `
+      SELECT * FROM gs_faculties 
+      WHERE fac_id::text = $1 OR fac_id::text = $2 OR faculty_id::text = $1 OR faculty_id::text = $2 OR id::text = $1 
+      LIMIT 1
+    `;
+    const res = await pgPool.query(query, [cleanId, normalizedId]);
+    if (res.rows.length > 0) {
+      const row = res.rows[0];
+      const name = (row.fac_name || row.fac_name_th || row.faculty_name || row.facultyname || row.fakname || row.fak_name || row.name || '').trim();
+      if (name) {
+        console.log(`PG: [SUCCESS] Looked up faculty name for ID "${cleanId}": "${name}"`);
+        facultyNameCache.set(normalizedId, name);
+        facultyNameCache.set(cleanId, name);
+        return name;
+      }
+    }
+  } catch (err: any) {
+    console.warn(`PG: Standard gs_faculties query failed: ${err.message}. Trying dynamic column sensing...`);
+    try {
+      const schemaRes = await pgPool.query("SELECT * FROM gs_faculties LIMIT 1");
+      if (schemaRes.rows.length > 0) {
+        const sampleRow = schemaRes.rows[0];
+        const keys = Object.keys(sampleRow);
+        const idCol = keys.find(k => k.toLowerCase() === 'fac_id' || k.toLowerCase() === 'faculty_id' || k.toLowerCase().endsWith('id'));
+        const nameCol = keys.find(k => k.toLowerCase() === 'fac_name' || k.toLowerCase().includes('name') || k.toLowerCase().includes('fak'));
+        if (idCol && nameCol) {
+          const dynamicRes = await pgPool.query(`SELECT ${nameCol} FROM gs_faculties WHERE ${idCol}::text = $1 OR ${idCol}::text = $2 LIMIT 1`, [cleanId, normalizedId]);
+          if (dynamicRes.rows.length > 0) {
+            const name = (dynamicRes.rows[0][nameCol] || '').trim();
+            if (name) {
+              console.log(`PG: [DYNAMIC SUCCESS] Looked up faculty name for ID "${cleanId}": "${name}"`);
+              facultyNameCache.set(normalizedId, name);
+              facultyNameCache.set(cleanId, name);
+              return name;
+            }
+          }
+        }
+      }
+    } catch (dynamicErr: any) {
+      console.error("PG: Dynamic gs_faculties query failed:", dynamicErr.message);
+    }
+  }
+  return null;
+}
+
+async function getFacultyIdByName(facultyName: string): Promise<string | null> {
+  if (!process.env.PG_HOST || !facultyName) return null;
+  const cleanName = facultyName.replace(/^คณะ\s*/, '').trim();
+  try {
+    const res = await pgPool.query(
+      `SELECT * FROM gs_faculties WHERE fac_name ILIKE $1 OR faculty_name ILIKE $1 OR fakname ILIKE $1 LIMIT 1`,
+      [`%${cleanName}%`]
+    );
+    if (res.rows.length > 0) {
+      const row = res.rows[0];
+      const id = row.fac_id || row.faculty_id || row.id || null;
+      if (id !== null && id !== undefined) {
+        return String(id).trim();
+      }
+    }
+  } catch (err: any) {
+    console.warn("PG: getFacultyIdByName query failed:", err.message);
+  }
+  return null;
+}
+
 async function getGSMISDetails(email: string): Promise<{
   facultyId: string | null;
   facultyName: string | null;
@@ -117,7 +197,10 @@ async function getGSMISDetails(email: string): Promise<{
 
     if (row) {
       const fId = row.facultyid || row.faculty_id || null;
-      const fName = row.facultyname || row.faculty_name || row.fakname || row.fak_name || null;
+      let fName = row.facultyname || row.faculty_name || row.fakname || row.fak_name || null;
+      if (!fName && fId) {
+        fName = await getFacultyNameById(fId);
+      }
       const acadPosId = row.academic_position_id !== undefined ? row.academic_position_id : (row.academic_position || row.academic_pos_id || null);
 
       const firstNameVal = row.firstname || row.first_name || row.firstname_th || row.first_name_th || null;
@@ -231,12 +314,17 @@ async function getStaffFacultyDetails(email: string): Promise<{
     if (result.rows.length > 0) {
       const row = result.rows[0];
       console.log(`PG: [SUCCESS] Found details in staff_faculty for ${email}:`, row);
+      const rawFacId = row.staff_facultyid !== null && row.staff_facultyid !== undefined ? String(row.staff_facultyid).trim() : null;
+      let facThai = row.staff_facultyname_thai ? String(row.staff_facultyname_thai).trim() : null;
+      if (!facThai && rawFacId) {
+        facThai = await getFacultyNameById(rawFacId);
+      }
       return {
         staffEmail: row.staff_email || null,
         staffName: row.staff_name || null,
         staffFamilyname: row.staff_familyname || null,
-        staffFacultyId: row.staff_facultyid !== null && row.staff_facultyid !== undefined ? String(row.staff_facultyid).trim() : null,
-        staffFacultynameThai: row.staff_facultyname_thai || null,
+        staffFacultyId: rawFacId,
+        staffFacultynameThai: facThai,
         staffFacultynameEng: row.staff_facultyname_eng || null,
       };
     }
@@ -248,7 +336,18 @@ async function getStaffFacultyDetails(email: string): Promise<{
   }
 }
 
-async function getFacultyDetailsFromGSMIS(email: string): Promise<{ facultyId: string | null; facultyName: string | null }> {
+async function getFacultyDetailsFromGSMIS(email: string, role?: string): Promise<{ facultyId: string | null; facultyName: string | null }> {
+  // If role is explicitly STAFF, prioritize checking staff_faculty first
+  if (role === 'STAFF') {
+    const staffDetails = await getStaffFacultyDetails(email);
+    if (staffDetails && staffDetails.staffFacultyId) {
+      return {
+        facultyId: staffDetails.staffFacultyId,
+        facultyName: staffDetails.staffFacultynameThai || staffDetails.staffFacultynameEng || null
+      };
+    }
+  }
+
   const details = await getGSMISDetails(email);
   if (details.facultyId) {
     return {
@@ -258,7 +357,7 @@ async function getFacultyDetailsFromGSMIS(email: string): Promise<{ facultyId: s
   }
 
   const staffDetails = await getStaffFacultyDetails(email);
-  if (staffDetails) {
+  if (staffDetails && staffDetails.staffFacultyId) {
     return {
       facultyId: staffDetails.staffFacultyId,
       facultyName: staffDetails.staffFacultynameThai || staffDetails.staffFacultynameEng || null
@@ -271,8 +370,8 @@ async function getFacultyDetailsFromGSMIS(email: string): Promise<{ facultyId: s
   };
 }
 
-async function getFacultyIdFromGSMIS(email: string): Promise<string | null> {
-  const details = await getFacultyDetailsFromGSMIS(email);
+async function getFacultyIdFromGSMIS(email: string, role?: string): Promise<string | null> {
+  const details = await getFacultyDetailsFromGSMIS(email, role);
   return details.facultyId;
 }
 
@@ -672,41 +771,11 @@ async function startServer() {
         if (gsmisDetails.facultyName) {
           resolvedFaculty = gsmisDetails.facultyName.trim();
         } else if (gsmisDetails.facultyId) {
-          const idStr = String(gsmisDetails.facultyId).trim();
-          if (idStr === '24' || idStr === '21' || idStr.toLowerCase().includes('grad') || idStr.toLowerCase().includes('gs')) {
-            resolvedFaculty = 'บัณฑิตวิทยาลัย';
-          } else if (idStr === '02' || idStr === '2' || idStr.toLowerCase().includes('eng')) {
-            resolvedFaculty = 'วิศวกรรมศาสตร์';
-          } else if (idStr === '03' || idStr === '3' || idStr.toLowerCase().includes('sci')) {
-            resolvedFaculty = 'วิทยาศาสตร์';
-          } else if (idStr === '01' || idStr === '1' || idStr.toLowerCase().includes('agr')) {
-            resolvedFaculty = 'เกษตรศาสตร์';
-          } else if (idStr === '04' || idStr === '4' || idStr.toLowerCase().includes('tech')) {
-            resolvedFaculty = 'เทคโนโลยี';
-          } else if (idStr === '05' || idStr === '5' || idStr.toLowerCase().includes('hum')) {
-            resolvedFaculty = 'มนุษยศาสตร์และสังคมศาสตร์';
-          } else if (idStr === '06' || idStr === '6' || idStr.toLowerCase().includes('edu')) {
-            resolvedFaculty = 'ศึกษาศาสตร์';
-          } else if (idStr === '07' || idStr === '7' || idStr.toLowerCase().includes('nur')) {
-            resolvedFaculty = 'พยาบาลศาสตร์';
-          } else if (idStr === '08' || idStr === '8' || idStr.toLowerCase().includes('med')) {
-            resolvedFaculty = 'แพทยศาสตร์';
-          } else if (idStr === '10' || idStr.toLowerCase().includes('pub')) {
-            resolvedFaculty = 'สาธารณสุขศาสตร์';
-          } else if (idStr === '11' || idStr.toLowerCase().includes('den')) {
-            resolvedFaculty = 'ทันตแพทยศาสตร์';
-          } else if (idStr === '12' || idStr.toLowerCase().includes('pha')) {
-            resolvedFaculty = 'เภสัชศาสตร์';
-          } else if (idStr === '13' || idStr.toLowerCase().includes('vet')) {
-            resolvedFaculty = 'สัตวแพทยศาสตร์';
-          } else if (idStr === '14' || idStr.toLowerCase().includes('acc')) {
-            resolvedFaculty = 'บริหารธุรกิจและการบัญชี';
-          } else if (idStr === '15' || idStr.toLowerCase().includes('art')) {
-            resolvedFaculty = 'ศิลปกรรมศาสตร์';
-          } else if (idStr === '16' || idStr.toLowerCase().includes('arc')) {
-            resolvedFaculty = 'สถาปัตยกรรมศาสตร์';
+          const dbFacName = await getFacultyNameById(gsmisDetails.facultyId);
+          if (dbFacName) {
+            resolvedFaculty = dbFacName.trim();
           } else {
-            resolvedFaculty = idStr;
+            resolvedFaculty = `คณะรหัส ${gsmisDetails.facultyId}`;
           }
         }
 
@@ -717,7 +786,7 @@ async function startServer() {
             fullProfile.faculty ||
             fullProfile.fakName ||
             fullProfile.fak_name ||
-            'วิศวกรรมศาสตร์'
+            'ไม่ระบุคณะ'
           ).trim();
         }
 
@@ -756,7 +825,7 @@ async function startServer() {
           sso_data: fullProfile
         };
 
-        console.log(`AUTH: User [${userEmail}] verified in gs_persons as academic. Mapped to ADVISOR with secondary PROGRAM_CHAIR: ${isProgChair}`);
+        console.log(`AUTH: User [${userEmail}] verified in gs_persons as academic. Mapped to ADVISOR with secondary PROGRAM_CHAIR: ${isProgChair}, Faculty: ${resolvedFaculty} (ID: ${gsmisDetails.facultyId})`);
 
       } else {
         // --- STAFF / NOT FOUND IN GS_PERSONS ---
@@ -765,6 +834,9 @@ async function startServer() {
         if (staffDetails) {
           const fullName = `${staffDetails.staffName || ""} ${staffDetails.staffFamilyname || ""}`.trim();
           let resolvedFaculty = staffDetails.staffFacultynameThai || staffDetails.staffFacultynameEng || "";
+          if (!resolvedFaculty && staffDetails.staffFacultyId) {
+            resolvedFaculty = (await getFacultyNameById(staffDetails.staffFacultyId)) || "";
+          }
           if (resolvedFaculty.startsWith("คณะ")) {
             resolvedFaculty = resolvedFaculty.replace(/^คณะ\s*/, '').trim();
           }
@@ -776,8 +848,8 @@ async function startServer() {
             email: userEmail,
             name: fullName,
             prefix: "",
-            faculty: resolvedFaculty || "วิศวกรรมศาสตร์",
-            facultyname: resolvedFacultyName,
+            faculty: resolvedFaculty || "ไม่ระบุคณะ",
+            facultyname: resolvedFacultyName || (resolvedFaculty ? `คณะ ${resolvedFaculty}` : "ไม่ระบุคณะ"),
             facultyId: staffDetails.staffFacultyId || null,
             department: "",
             academicPositionName: null,
@@ -786,7 +858,7 @@ async function startServer() {
             sso_data: fullProfile
           };
 
-          console.log(`AUTH: User [${userEmail}] verified in staff_faculty as staff. Mapped to STAFF role only.`);
+          console.log(`AUTH: User [${userEmail}] verified in staff_faculty as staff. Faculty: ${resolvedFaculty} (ID: ${staffDetails.staffFacultyId})`);
         } else {
           // Fallback
           const rawFullName = (fullProfile.fullname || fullProfile.name || userEmail.split('@')[0]).trim();
@@ -813,7 +885,7 @@ async function startServer() {
             fullProfile.faculty ||
             fullProfile.fakName ||
             fullProfile.fak_name ||
-            (userEmail === 'patttan@kku.ac.th' ? 'บัณฑิตวิทยาลัย' : 'วิศวกรรมศาสตร์')
+            (userEmail === 'patttan@kku.ac.th' ? 'บัณฑิตวิทยาลัย' : 'ไม่ระบุคณะ')
           ).trim();
 
           if (resolvedFaculty.startsWith("คณะ")) {
@@ -824,13 +896,15 @@ async function startServer() {
           const resolvedFacultyName = formatWithFacultySpace(rawFacultyFromFallback || resolvedFaculty);
 
           const isProgChair = await checkIfProgramChair(userEmail);
+          const fallbackFacultyId = await getFacultyIdFromGSMIS(userEmail, isStaff ? 'STAFF' : 'ADVISOR') || null;
+
           finalUser = {
             email: fullProfile.email || userEmail,
             name: fullName,
             prefix: isStaff ? "" : "อ.",
             faculty: resolvedFaculty,
-            facultyname: resolvedFacultyName,
-            facultyId: await getFacultyIdFromGSMIS(userEmail) || null,
+            facultyname: resolvedFacultyName || (resolvedFaculty ? `คณะ ${resolvedFaculty}` : "ไม่ระบุคณะ"),
+            facultyId: fallbackFacultyId,
             department: isStaff ? "" : "คอมพิวเตอร์",
             academicPositionName: null,
             role: isStaff ? 'STAFF' : 'ADVISOR',
@@ -902,20 +976,19 @@ async function startServer() {
       const userEmail = String(email);
       const userRole = role ? String(role) : 'ADVISOR';
 
-      // 1. Fetch facultyId from GSMIS Postgres
-      let facultyId = await getFacultyIdFromGSMIS(userEmail);
+      // 1. Fetch facultyId: Prefer explicitly supplied query parameter, otherwise lookup in GSMIS
+      const queryFacultyId = req.query.facultyId ? String(req.query.facultyId).trim() : null;
+      let facultyId = queryFacultyId || await getFacultyIdFromGSMIS(userEmail, userRole);
 
-      // Fallback: หากไม่พบ facultyId ใน Database แต่มีการส่ง faculty มาจาก Frontend ให้แปรเป็น ID กลับ
+      // Fallback: หากไม่พบ facultyId ใน Database แต่มีการส่ง faculty มาจาก Frontend ให้ค้นหา ID จากชื่อคณะใน gs_faculties
       if (!facultyId && req.query.faculty) {
         const queryFaculty = String(req.query.faculty).trim();
-        if (queryFaculty.includes('วิศวกรรมศาสตร์')) facultyId = '02';
-        else if (queryFaculty.includes('วิทยาศาสตร์')) facultyId = '03';
-        else if (queryFaculty.includes('เกษตรศาสตร์')) facultyId = '01';
-        else if (queryFaculty.includes('เทคโนโลยี')) facultyId = '04';
-        else if (queryFaculty.includes('มนุษยศาสตร์')) facultyId = '05';
-        else if (queryFaculty.includes('ศึกษาศาสตร์')) facultyId = '06';
-        else if (queryFaculty.includes('บัณฑิตวิทยาลัย')) facultyId = '24';
-        console.log(`LJ: Resolved facultyId "${facultyId}" from fallback query faculty "${queryFaculty}"`);
+        facultyId = await getFacultyIdByName(queryFaculty);
+        if (facultyId) {
+          console.log(`LJ: Resolved facultyId "${facultyId}" from DB for query faculty "${queryFaculty}"`);
+        } else {
+          console.log(`LJ: Could not resolve facultyId from DB for query faculty "${queryFaculty}"`);
+        }
       }
 
       // Check In-Memory Cache first (unless refresh=true is requested)
@@ -948,32 +1021,23 @@ async function startServer() {
         console.log(`LJ: Querying administrative or program chair view (Role: ${userRole}). Fetching all faculty students.`);
       }
 
-      // Add facultyId if found in GSMIS (mapped to Life Journey API expected faculty IDs)
+      // Add facultyId if found: Pass EXACT GSMIS faculty ID directly to Life Journey API
       if (facultyId) {
         const cleanId = String(facultyId).trim();
-        let ljFacultyId = cleanId;
+        // Normalize leading zeros if purely numeric (e.g. "02" -> "2", "03" -> "3", "04" -> "4")
+        const numVal = parseInt(cleanId, 10);
+        const normalizedFacultyId = !isNaN(numVal) ? String(numVal) : cleanId;
 
-        // Map GSMIS ID (e.g. "02", "03") to Life Journey API expected faculty IDs
-        if (cleanId === '24' || cleanId === '10' || cleanId === '010') {
-          ljFacultyId = '10'; // บัณฑิตวิทยาลัย
-        } else if (cleanId === '02' || cleanId === '2' || cleanId === '04' || cleanId === '4') {
-          ljFacultyId = '4';  // คณะวิศวกรรมศาสตร์
-        } else if (cleanId === '03' || cleanId === '3') {
-          ljFacultyId = '2';  // คณะวิทยาศาสตร์
-        } else if (cleanId === '01' || cleanId === '1') {
-          ljFacultyId = '3';  // คณะเกษตรศาสตร์
-        } else if (cleanId === '06' || cleanId === '6' || cleanId === '05' || cleanId === '5') {
-          ljFacultyId = '5';  // คณะศึกษาศาสตร์ / คณะมนุษยศาสตร์
-        } else if (cleanId === '11') {
-          ljFacultyId = '11'; // คณะสาธารณสุขศาสตร์
-        } else if (cleanId === '13') {
-          ljFacultyId = '13'; // คณะทันตแพทยศาสตร์
-        } else if (cleanId === '28') {
-          ljFacultyId = '28'; // วิทยาลัยการปกครองท้องถิ่น
+        // Special handling: บัณฑิตวิทยาลัย (Graduate School central admin) can view all students across university
+        const facultyParam = req.query.faculty ? String(req.query.faculty).toLowerCase() : '';
+        const isGraduateSchool = normalizedFacultyId === '24' || normalizedFacultyId === '10' || facultyParam.includes('บัณฑิตวิทยาลัย') || facultyParam.includes('graduate');
+
+        if (isGraduateSchool && userRole === 'STAFF') {
+          console.log(`LJ: User is Graduate School central admin. Omitting facultyId filter to allow all students access.`);
+        } else {
+          baseParams.facultyId = normalizedFacultyId;
+          console.log(`LJ: Using direct GSMIS facultyId filter for Life Journey API: "${normalizedFacultyId}" (Original: "${facultyId}")`);
         }
-
-        baseParams.facultyId = ljFacultyId;
-        console.log(`LJ: Using mapped facultyId filter for Life Journey API: "${ljFacultyId}" (GSMIS original: "${facultyId}")`);
       }
 
       // --- PARALLEL BATCH FETCHING FOR MAXIMUM SPEED & 100% COMPLETENESS ---

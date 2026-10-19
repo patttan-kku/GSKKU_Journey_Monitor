@@ -51,13 +51,14 @@ const handleSSOCallback = async (payload: any) => {
   return response.json();
 };
 
-const fetchLJStudents = async (email?: string, role?: string, faculty?: string) => {
+const fetchLJStudents = async (email?: string, role?: string, faculty?: string, facultyId?: string) => {
   const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
   let url = `${baseUrl}/api/life-journey/students`;
   const params = new URLSearchParams();
   if (email) params.append('email', email);
   if (role) params.append('role', role);
   if (faculty) params.append('faculty', faculty);
+  if (facultyId) params.append('facultyId', facultyId);
   
   if (params.toString()) {
     url += '?' + params.toString();
@@ -1771,7 +1772,7 @@ function MainApp({ user: parentUser, setUser: setParentUser }: { user: User | nu
   React.useEffect(() => {
     if (view === 'DASHBOARD' && dashboardType) {
       setIsDataLoading(true);
-      fetchLJStudents(user?.email, dashboardType, user?.faculty)
+      fetchLJStudents(user?.email, dashboardType, user?.faculty, user?.facultyId)
         .then(res => {
           console.log("DEBUG: Raw API Response from Life Journey:", res);
           setDebugData(res);
